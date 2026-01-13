@@ -1,0 +1,211 @@
+{
+    "name": "Cloud Miami Chatbot Workflow",
+    "nodes": [
+        {
+            "parameters": {
+                "httpMethod": "POST",
+                "path": "chatbot",
+                "responseMode": "responseNode",
+                "options": {
+                    "allowedOrigins": "https://cloudmiami.org,https://www.cloudmiami.org,http://localhost:5173"
+                }
+            },
+            "id": "webhook",
+            "name": "Webhook",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 2,
+            "position": [
+                250,
+                300
+            ],
+            "webhookId": "chatbot"
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "string": [
+                        {
+                            "value1": "={{ $json.type }}",
+                            "value2": "lead_capture"
+                        }
+                    ]
+                }
+            },
+            "id": "check-type",
+            "name": "Check Message Type",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 1,
+            "position": [
+                450,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "https://crm.cloudmiami.org/api/rest/people",
+                "authentication": "genericCredentialType",
+                "genericAuthType": "httpHeaderAuth",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "name",
+                            "value": "={{ $json.lead.name }}"
+                        },
+                        {
+                            "name": "emails",
+                            "value": "={{ [{ address: $json.lead.email, primary: true }] }}"
+                        },
+                        {
+                            "name": "links",
+                            "value": "={{ $json.lead.website ? [{ url: $json.lead.website, label: 'Website' }] : [] }}"
+                        }
+                    ]
+                }
+            },
+            "id": "create-lead",
+            "name": "Create Lead in Twenty",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4,
+            "position": [
+                700,
+                200
+            ],
+            "credentials": {
+                "httpHeaderAuth": {
+                    "id": "TWENTY_API_KEY",
+                    "name": "Twenty API Key"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "respondWith": "json",
+                "responseBody": "={{ { \"status\": \"lead_captured\", \"message\": \"Thank you! We'll be in touch.\" } }}"
+            },
+            "id": "respond-lead",
+            "name": "Respond Lead Captured",
+            "type": "n8n-nodes-base.respondToWebhook",
+            "typeVersion": 1,
+            "position": [
+                900,
+                200
+            ]
+        },
+        {
+            "parameters": {
+                "model": "gpt-4o-mini",
+                "messages": {
+                    "values": [
+                        {
+                            "role": "system",
+                            "content": "You are the Cloud Miami AI assistant. Cloud Miami is an AI-native design and motion agency that offers:\n\n1. **AI Web Architecture** - High-conversion web platforms with AI chatbots\n2. **SEO Content Engines** - Scalable AI-powered content production\n3. **AI Video Production** - 2D/3D animations and AI avatars\n\nBe helpful, professional, and concise. Encourage leads to share their contact info if they haven't already. Keep responses under 100 words."
+                        },
+                        {
+                            "role": "user",
+                            "content": "={{ $json.message }}"
+                        }
+                    ]
+                },
+                "options": {
+                    "maxTokens": 200,
+                    "temperature": 0.7
+                }
+            },
+            "id": "openai",
+            "name": "OpenAI Chat",
+            "type": "@n8n/n8n-nodes-langchain.openAi",
+            "typeVersion": 1,
+            "position": [
+                700,
+                400
+            ],
+            "credentials": {
+                "openAiApi": {
+                    "id": "OPENAI_API_KEY",
+                    "name": "OpenAI API"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "respondWith": "json",
+                "responseBody": "={{ { \"reply\": $json.message.content } }}"
+            },
+            "id": "respond-chat",
+            "name": "Respond with AI Message",
+            "type": "n8n-nodes-base.respondToWebhook",
+            "typeVersion": 1,
+            "position": [
+                900,
+                400
+            ]
+        }
+    ],
+    "connections": {
+        "Webhook": {
+            "main": [
+                [
+                    {
+                        "node": "Check Message Type",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Check Message Type": {
+            "main": [
+                [
+                    {
+                        "node": "Create Lead in Twenty",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "OpenAI Chat",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Create Lead in Twenty": {
+            "main": [
+                [
+                    {
+                        "node": "Respond Lead Captured",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "OpenAI Chat": {
+            "main": [
+                [
+                    {
+                        "node": "Respond with AI Message",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "settings": {
+        "executionOrder": "v1"
+    }
+}

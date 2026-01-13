@@ -1,4 +1,6 @@
 import './style.css'
+import './chatbot.css'
+import './chatbot.js'
 
 document.addEventListener('DOMContentLoaded', () => {
   const header = document.getElementById('header');
