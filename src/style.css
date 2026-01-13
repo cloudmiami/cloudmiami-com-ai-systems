@@ -145,7 +145,7 @@ header.scrolled {
 }
 
 .logo img {
-  height: 50px;
+  height: 80px;
 }
 
 .nav-links {
@@ -287,6 +287,10 @@ footer {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 3rem;
+}
+
+.footer-content .logo img {
+  height: 60px;
 }
 
 .footer-bottom {
