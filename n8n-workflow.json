@@ -1,5 +1,5 @@
 {
-    "name": "Cloud Miami Chatbot Workflow",
+    "name": "Cloud Miami Chatbot Workflow (Enhanced)",
     "nodes": [
         {
             "parameters": {
@@ -25,7 +25,8 @@
                 "conditions": {
                     "string": [
                         {
-                            "value1": "={{ $json.type }}",
+                            "value1": "={{ $json.body.type }}",
+                            "operation": "equals",
                             "value2": "lead_capture"
                         }
                     ]
@@ -38,6 +39,19 @@
             "position": [
                 450,
                 300
+            ]
+        },
+        {
+            "parameters": {
+                "jsCode": "// Process lead data for Twenty CRM\nconst lead = $input.first().json.body.lead;\nconst history = $input.first().json.body.history || [];\n\n// Build notes from conversation\nlet notes = `Lead captured from Cloud Miami Chatbot\\n\\n`;\nnotes += `Conversation ID: ${$input.first().json.body.conversationId}\\n`;\nnotes += `Timestamp: ${$input.first().json.body.timestamp}\\n\\n`;\n\nif (lead.interests && lead.interests.length > 0) {\n  notes += `Interests: ${lead.interests.join(', ')}\\n\\n`;\n}\n\nif (lead.conversationSummary) {\n  notes += `Conversation Summary:\\n${lead.conversationSummary}\\n`;\n}\n\nreturn [{\n  json: {\n    name: {\n      firstName: lead.name.split(' ')[0] || lead.name,\n      lastName: lead.name.split(' ').slice(1).join(' ') || ''\n    },\n    emails: {\n      primaryEmail: lead.email\n    },\n    company: {\n      name: lead.website ? new URL(lead.website.startsWith('http') ? lead.website : 'https://' + lead.website).hostname.replace('www.', '') : ''\n    },\n    notes: notes,\n    interests: lead.interests || [],\n    website: lead.website || ''\n  }\n}];"
+            },
+            "id": "process-lead",
+            "name": "Process Lead Data",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                650,
+                150
             ]
         },
         {
@@ -56,30 +70,16 @@
                     ]
                 },
                 "sendBody": true,
-                "bodyParameters": {
-                    "parameters": [
-                        {
-                            "name": "name",
-                            "value": "={{ $json.lead.name }}"
-                        },
-                        {
-                            "name": "emails",
-                            "value": "={{ [{ address: $json.lead.email, primary: true }] }}"
-                        },
-                        {
-                            "name": "links",
-                            "value": "={{ $json.lead.website ? [{ url: $json.lead.website, label: 'Website' }] : [] }}"
-                        }
-                    ]
-                }
+                "specifyBody": "json",
+                "jsonBody": "={\n  \"name\": {\n    \"firstName\": \"{{ $json.name.firstName }}\",\n    \"lastName\": \"{{ $json.name.lastName }}\"\n  },\n  \"emails\": {\n    \"primaryEmail\": \"{{ $json.emails.primaryEmail }}\"\n  }\n}"
             },
             "id": "create-lead",
             "name": "Create Lead in Twenty",
             "type": "n8n-nodes-base.httpRequest",
-            "typeVersion": 4,
+            "typeVersion": 4.2,
             "position": [
-                700,
-                200
+                850,
+                150
             ],
             "credentials": {
                 "httpHeaderAuth": {
@@ -91,15 +91,28 @@
         {
             "parameters": {
                 "respondWith": "json",
-                "responseBody": "={{ { \"status\": \"lead_captured\", \"message\": \"Thank you! We'll be in touch.\" } }}"
+                "responseBody": "={{ { \"status\": \"lead_captured\", \"message\": \"Thank you! We'll be in touch soon.\" } }}"
             },
             "id": "respond-lead",
             "name": "Respond Lead Captured",
             "type": "n8n-nodes-base.respondToWebhook",
             "typeVersion": 1,
             "position": [
-                900,
-                200
+                1050,
+                150
+            ]
+        },
+        {
+            "parameters": {
+                "jsCode": "const history = $input.first().json.body.history || [];\nconst currentMessage = $input.first().json.body.message;\nconst lead = $input.first().json.body.lead;\nconst interests = $input.first().json.body.interests || [];\n\nconst messages = [\n  {\n    role: \"system\",\n    content: `You are Cloud Miami's AI assistant. We offer AI Web Architecture, SEO Content Engines, and AI Video Production.\n\nBe helpful, conversational, and provide detailed answers. Remember the conversation context.\n${lead ? `You are speaking with ${lead.name}.` : ''}\n${interests.length > 0 ? `They have shown interest in: ${interests.join(', ')}.` : ''}\n\nWhen appropriate, encourage them to share their email and project details.`\n  }\n];\n\n// Add conversation history\nfor (const msg of history.slice(-6)) {\n  messages.push({\n    role: msg.type === 'user' ? 'user' : 'assistant',\n    content: msg.content\n  });\n}\n\n// Add current message\nmessages.push({\n  role: \"user\",\n  content: currentMessage\n});\n\nreturn [{\n  json: {\n    model: \"gpt-3.5-turbo\",\n    max_tokens: 300,\n    messages: messages\n  }\n}];"
+            },
+            "id": "build-messages",
+            "name": "Build Messages",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                650,
+                450
             ]
         },
         {
@@ -107,7 +120,7 @@
                 "method": "POST",
                 "url": "https://api.openai.com/v1/chat/completions",
                 "authentication": "genericCredentialType",
-                "genericAuthType": "httpHeaderAuth",
+                "genericAuthType": "httpBearerAuth",
                 "sendHeaders": true,
                 "headerParameters": {
                     "parameters": [
@@ -118,22 +131,36 @@
                     ]
                 },
                 "sendBody": true,
-                "contentType": "raw",
-                "rawContentType": "application/json",
-                "body": "={{ JSON.stringify({ model: \"gpt-4o-mini\", messages: [ { role: \"system\", content: \"You are the Cloud Miami AI assistant. Cloud Miami is an AI-native design and motion agency offering: AI Web Architecture, SEO Content Engines, and AI Video Production. Be helpful, professional, and concise (under 100 words).\" }, { role: \"user\", content: $json.message } ], max_tokens: 200 }) }}"
+                "specifyBody": "fields",
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "model",
+                            "value": "={{ $json.model }}"
+                        },
+                        {
+                            "name": "max_tokens",
+                            "value": "={{ $json.max_tokens }}"
+                        },
+                        {
+                            "name": "messages",
+                            "value": "={{ $json.messages }}"
+                        }
+                    ]
+                }
             },
             "id": "openai",
             "name": "OpenAI Chat",
             "type": "n8n-nodes-base.httpRequest",
-            "typeVersion": 4,
+            "typeVersion": 4.2,
             "position": [
-                700,
-                400
+                850,
+                450
             ],
             "credentials": {
-                "httpHeaderAuth": {
-                    "id": "OPENAI_API_KEY_HEADER",
-                    "name": "OpenAI API Header"
+                "httpBearerAuth": {
+                    "id": "OPENAI_BEARER_AUTH",
+                    "name": "OpenAI Bearer Auth"
                 }
             }
         },
@@ -147,8 +174,8 @@
             "type": "n8n-nodes-base.respondToWebhook",
             "typeVersion": 1,
             "position": [
-                900,
-                400
+                1050,
+                450
             ]
         }
     ],
@@ -168,14 +195,25 @@
             "main": [
                 [
                     {
-                        "node": "Create Lead in Twenty",
+                        "node": "Process Lead Data",
                         "type": "main",
                         "index": 0
                     }
                 ],
                 [
                     {
-                        "node": "OpenAI Chat",
+                        "node": "Build Messages",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Process Lead Data": {
+            "main": [
+                [
+                    {
+                        "node": "Create Lead in Twenty",
                         "type": "main",
                         "index": 0
                     }
@@ -187,6 +225,17 @@
                 [
                     {
                         "node": "Respond Lead Captured",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Build Messages": {
+            "main": [
+                [
+                    {
+                        "node": "OpenAI Chat",
                         "type": "main",
                         "index": 0
                     }

@@ -11,6 +11,7 @@ class CloudMiamiChatbot {
     this.conversationId = this.generateId();
     this.isOpen = false;
     this.messages = [];
+    this.interests = new Set(); // Track detected interests
 
     this.init();
   }
@@ -127,6 +128,11 @@ class CloudMiamiChatbot {
     this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
 
     this.messages.push({ type, content, timestamp: new Date().toISOString() });
+
+    // Track interests from user messages
+    if (type === 'user') {
+      this.detectInterests(content);
+    }
   }
 
   showTyping() {
@@ -176,6 +182,21 @@ class CloudMiamiChatbot {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   }
 
+  detectInterests(message) {
+    const lowerMsg = message.toLowerCase();
+    const interestKeywords = {
+      'AI Web Architecture': ['web', 'website', 'architecture', 'design', 'ui', 'ux', 'frontend', 'backend'],
+      'SEO Content Engines': ['seo', 'content', 'blog', 'search', 'ranking', 'traffic', 'marketing'],
+      'AI Video Production': ['video', 'motion', 'animation', 'production', 'visual', 'footage']
+    };
+
+    for (const [interest, keywords] of Object.entries(interestKeywords)) {
+      if (keywords.some(keyword => lowerMsg.includes(keyword))) {
+        this.interests.add(interest);
+      }
+    }
+  }
+
   async sendLeadToWebhook() {
     try {
       await fetch(this.webhookUrl, {
@@ -184,7 +205,12 @@ class CloudMiamiChatbot {
         body: JSON.stringify({
           type: 'lead_capture',
           conversationId: this.conversationId,
-          lead: this.leadData,
+          lead: {
+            ...this.leadData,
+            interests: Array.from(this.interests),
+            conversationSummary: this.messages.map(m => `${m.type}: ${m.content}`).join('\n')
+          },
+          history: this.messages,
           timestamp: new Date().toISOString()
         })
       });
@@ -212,6 +238,7 @@ class CloudMiamiChatbot {
           type: 'chat_message',
           conversationId: this.conversationId,
           lead: this.leadData,
+          interests: Array.from(this.interests),
           message: text,
           history: this.messages.slice(-10), // Last 10 messages for context
           timestamp: new Date().toISOString()
@@ -223,19 +250,19 @@ class CloudMiamiChatbot {
       if (response.ok) {
         const text = await response.text();
         try {
-            // Check if response is empty
-            if (!text) {
-                console.warn('Received empty response from webhook');
-                this.addMessage('bot', 'Thanks for your message! Our team will follow up soon.');
-                return;
-            }
-            
-            const data = JSON.parse(text);
-            this.addMessage('bot', data.reply || 'Thanks for your message! Our team will follow up soon.');
-        } catch (e) {
-            console.error('Failed to parse JSON response:', text);
-            // If the response is not JSON (e.g., simple text), we might want to display it or show a generic error
+          // Check if response is empty
+          if (!text) {
+            console.warn('Received empty response from webhook');
             this.addMessage('bot', 'Thanks for your message! Our team will follow up soon.');
+            return;
+          }
+
+          const data = JSON.parse(text);
+          this.addMessage('bot', data.reply || 'Thanks for your message! Our team will follow up soon.');
+        } catch (e) {
+          console.error('Failed to parse JSON response:', text);
+          // If the response is not JSON (e.g., simple text), we might want to display it or show a generic error
+          this.addMessage('bot', 'Thanks for your message! Our team will follow up soon.');
         }
       } else {
         console.error('Webhook error:', response.status, response.statusText);
