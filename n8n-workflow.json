@@ -7,7 +7,7 @@
                 "path": "chatbot",
                 "responseMode": "responseNode",
                 "options": {
-                    "allowedOrigins": "https://cloudmiami.org,https://www.cloudmiami.org,http://localhost:5173"
+                    "allowedOrigins": "*"
                 }
             },
             "id": "webhook",

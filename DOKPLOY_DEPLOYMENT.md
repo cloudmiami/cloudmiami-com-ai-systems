@@ -5,7 +5,7 @@ Deploy n8n and Twenty CRM on your Dokploy VPS (cloudmiami.net).
 
 ---
 
-## 1. Deploy n8n (n8n.cloudmiami.net)
+## 1. Deploy n8n (nn.cloudmiami.org)
 
 ### In Dokploy Dashboard:
 1. Go to **Projects** → Create new project "Cloud Miami Stack"
@@ -23,10 +23,10 @@ services:
     ports:
       - "5678:5678"
     environment:
-      - N8N_HOST=n8n.cloudmiami.net
+      - N8N_HOST=nn.cloudmiami.org
       - N8N_PORT=5678
       - N8N_PROTOCOL=https
-      - WEBHOOK_URL=https://n8n.cloudmiami.net/
+      - WEBHOOK_URL=https://nn.cloudmiami.org/
       - GENERIC_TIMEZONE=America/New_York
       - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
     volumes:
@@ -42,7 +42,7 @@ volumes:
 | `N8N_ENCRYPTION_KEY` | Generate with `openssl rand -hex 32` |
 
 ### Domain Setup:
-1. Add domain: `n8n.cloudmiami.net`
+1. Add domain: `nn.cloudmiami.org`
 2. Enable HTTPS (Let's Encrypt)
 3. Set port to `5678`
 
@@ -118,7 +118,7 @@ volumes:
 
 ## 3. Configure n8n Credentials
 
-After n8n is running at https://n8n.cloudmiami.net:
+After n8n is running at https://nn.cloudmiami.org:
 
 ### OpenAI API:
 1. Go to **Settings** → **Credentials**
@@ -148,7 +148,7 @@ After n8n is running at https://n8n.cloudmiami.net:
 ## 5. Update Chatbot Webhook URL
 
 Once n8n is deployed, verify the webhook URL:
-- Default: `https://n8n.cloudmiami.net/webhook/chatbot`
+- Default: `https://nn.cloudmiami.org/webhook/chatbot`
 
 The chatbot is already configured to use this URL.
 
@@ -156,7 +156,7 @@ The chatbot is already configured to use this URL.
 
 ## Quick Verification
 
-1. **n8n**: Visit https://n8n.cloudmiami.net
+1. **n8n**: Visit https://nn.cloudmiami.org
 2. **Twenty**: Visit https://crm.cloudmiami.org
 3. **Test Chatbot**: Use the chat on cloudmiami.org
 4. **Check Lead**: See if it appears in Twenty CRM
