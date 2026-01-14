@@ -221,9 +221,24 @@ class CloudMiamiChatbot {
       this.hideTyping();
 
       if (response.ok) {
-        const data = await response.json();
-        this.addMessage('bot', data.reply || 'Thanks for your message! Our team will follow up soon.');
+        const text = await response.text();
+        try {
+            // Check if response is empty
+            if (!text) {
+                console.warn('Received empty response from webhook');
+                this.addMessage('bot', 'Thanks for your message! Our team will follow up soon.');
+                return;
+            }
+            
+            const data = JSON.parse(text);
+            this.addMessage('bot', data.reply || 'Thanks for your message! Our team will follow up soon.');
+        } catch (e) {
+            console.error('Failed to parse JSON response:', text);
+            // If the response is not JSON (e.g., simple text), we might want to display it or show a generic error
+            this.addMessage('bot', 'Thanks for your message! Our team will follow up soon.');
+        }
       } else {
+        console.error('Webhook error:', response.status, response.statusText);
         this.addMessage('bot', 'Sorry, I encountered an issue. Please try again or contact us directly at hello@cloudmiami.org');
       }
     } catch (error) {

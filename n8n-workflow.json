@@ -123,7 +123,7 @@
                 "body": "={{ JSON.stringify({ model: \"gpt-4o-mini\", messages: [ { role: \"system\", content: \"You are the Cloud Miami AI assistant. Cloud Miami is an AI-native design and motion agency offering: AI Web Architecture, SEO Content Engines, and AI Video Production. Be helpful, professional, and concise (under 100 words).\" }, { role: \"user\", content: $json.message } ], max_tokens: 200 }) }}"
             },
             "id": "openai",
-            "name": "OpenAI Chat Request",
+            "name": "OpenAI Chat",
             "type": "n8n-nodes-base.httpRequest",
             "typeVersion": 4,
             "position": [
