@@ -104,47 +104,43 @@
         },
         {
             "parameters": {
-                "resource": "chat",
-                "operation": "complete",
-                "model": "gpt-4o-mini",
-                "messages": {
-                    "ui": {
-                        "messages": [
-                            {
-                                "role": "system",
-                                "content": "You are the Cloud Miami AI assistant. Cloud Miami is an AI-native design and motion agency that offers:\n\n1. **AI Web Architecture** - High-conversion web platforms with AI chatbots\n2. **SEO Content Engines** - Scalable AI-powered content production\n3. **AI Video Production** - 2D/3D animations and AI avatars\n\nBe helpful, professional, and concise. Encourage leads to share their contact info if they haven't already. Keep responses under 100 words."
-                            },
-                            {
-                                "role": "user",
-                                "content": "={{ $json.message }}"
-                            }
-                        ]
-                    }
+                "method": "POST",
+                "url": "https://api.openai.com/v1/chat/completions",
+                "authentication": "genericCredentialType",
+                "genericAuthType": "httpHeaderAuth",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
                 },
-                "options": {
-                    "maxTokens": 200,
-                    "temperature": 0.7
-                }
+                "sendBody": true,
+                "contentType": "raw",
+                "rawContentType": "application/json",
+                "body": "={{ JSON.stringify({ model: \"gpt-4o-mini\", messages: [ { role: \"system\", content: \"You are the Cloud Miami AI assistant. Cloud Miami is an AI-native design and motion agency offering: AI Web Architecture, SEO Content Engines, and AI Video Production. Be helpful, professional, and concise (under 100 words).\" }, { role: \"user\", content: $json.message } ], max_tokens: 200 }) }}"
             },
             "id": "openai",
-            "name": "OpenAI Chat",
-            "type": "n8n-nodes-base.openai",
-            "typeVersion": 1,
+            "name": "OpenAI Chat Request",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4,
             "position": [
                 700,
                 400
             ],
             "credentials": {
-                "openAiApi": {
-                    "id": "OPENAI_API_KEY",
-                    "name": "OpenAI API"
+                "httpHeaderAuth": {
+                    "id": "OPENAI_API_KEY_HEADER",
+                    "name": "OpenAI API Header"
                 }
             }
         },
         {
             "parameters": {
                 "respondWith": "json",
-                "responseBody": "={{ { \"reply\": $json.message.content } }}"
+                "responseBody": "={{ { \"reply\": $json.choices[0].message.content } }}"
             },
             "id": "respond-chat",
             "name": "Respond with AI Message",
