@@ -115,6 +115,11 @@ class CloudMiamiChatbot {
     this.isOpen = !this.isOpen;
     this.window.classList.toggle('open', this.isOpen);
     this.bubble.classList.toggle('open', this.isOpen);
+
+    // When closing chat, update lead with collected interests
+    if (!this.isOpen && this.leadData && this.interests.size > 0) {
+      this.updateLeadWithInterests();
+    }
   }
 
   addWelcomeMessage() {
@@ -218,6 +223,31 @@ class CloudMiamiChatbot {
       });
     } catch (error) {
       console.error('Failed to send lead data:', error);
+    }
+  }
+
+  async updateLeadWithInterests() {
+    if (!this.leadData || this.interests.size === 0) return;
+
+    try {
+      await fetch(this.webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'lead_update',
+          conversationId: this.conversationId,
+          lead: {
+            ...this.leadData,
+            interests: Array.from(this.interests),
+            conversationSummary: this.messages.map(m => `${m.type}: ${m.content}`).join('\n')
+          },
+          history: this.messages,
+          timestamp: new Date().toISOString()
+        })
+      });
+      console.log('Lead updated with interests:', Array.from(this.interests));
+    } catch (error) {
+      console.error('Failed to update lead:', error);
     }
   }
 
