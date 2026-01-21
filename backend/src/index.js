@@ -185,7 +185,10 @@ app.post('/api/chat/stream', async (c) => {
     })
   } catch (error) {
     console.error('OpenAI error:', error)
-    return c.json({ error: 'Failed to generate response' }, 500)
+    return c.json({ 
+      error: 'Failed to generate response',
+      details: error.message || String(error)
+    }, 500)
   }
 })
 
