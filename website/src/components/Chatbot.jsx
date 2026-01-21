@@ -5,7 +5,7 @@ import { useChatbot } from '../hooks/useChatbot';
 import clsx from 'clsx';
 
 export default function Chatbot() {
-  const { isOpen, setIsOpen, messages, isTyping, leadData, sendMessage, submitLead } = useChatbot();
+  const { isOpen, setIsOpen, messages, isTyping, sendMessage } = useChatbot();
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
@@ -70,11 +70,7 @@ export default function Chatbot() {
 
             {/* Input Area */}
             <div className="p-4 bg-void border-t border-white/10">
-              {!leadData ? (
-                <LeadForm onSubmit={submitLead} />
-              ) : (
-                <ChatInput onSend={sendMessage} />
-              )}
+              <ChatInput onSend={sendMessage} />
             </div>
           </motion.div>
         )}
