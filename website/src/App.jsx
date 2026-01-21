@@ -4,20 +4,20 @@ import Home from './pages/Home';
 import WebArchitecture from './pages/WebArchitecture';
 import SeoContent from './pages/SeoContent';
 import VideoProduction from './pages/VideoProduction';
-import Admin from './pages/Admin';
+import Admi from './pages/Admi';
 import Chatbot from './components/Chatbot';
 import ScrollToTop from './components/ScrollToTop';
 
 function App() {
   const location = useLocation();
-  const isAdmin = location.pathname === '/admin';
+  const isAdmin = location.pathname === '/admi';
 
   return (
     <>
       <ScrollToTop />
       {isAdmin ? (
         <Routes>
-          <Route path="/admin" element={<Admin />} />
+          <Route path="/admi" element={<Admi />} />
         </Routes>
       ) : (
         <Layout>
