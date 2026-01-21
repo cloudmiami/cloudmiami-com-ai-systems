@@ -3,13 +3,12 @@ import { cors } from 'hono/cors'
 import { serve } from '@hono/node-server'
 import OpenAI from 'openai'
 import postgres from 'postgres'
-import { Resend } from 'resend'
+import nodemailer from 'nodemailer'
 
 const app = new Hono()
 
 // Initialize clients safely
 const dbUrl = process.env.DATABASE_URL
-const resendKey = process.env.RESEND_API_KEY
 const openaiKey = process.env.OPENAI_API_KEY
 
 let sql
@@ -19,11 +18,23 @@ if (dbUrl) {
   console.warn('DATABASE_URL not set. Lead capture will not persist to DB.')
 }
 
-let resend
-if (resendKey) {
-  resend = new Resend(resendKey)
+// Initialize SMTP Transporter
+const smtpConfig = {
+  host: process.env.SMTP_HOST,
+  port: parseInt(process.env.SMTP_PORT || '587'),
+  secure: process.env.SMTP_SECURE === 'true',
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+}
+
+let transporter
+if (smtpConfig.host && smtpConfig.auth.user) {
+  transporter = nodemailer.createTransport(smtpConfig)
+  console.log('SMTP Transporter initialized')
 } else {
-  console.warn('RESEND_API_KEY not set. Emails will not be sent.')
+  console.warn('SMTP settings not set. Emails will not be sent.')
 }
 
 const SYSTEM_PROMPT = `You are the Cloud Miami AI assistant - a helpful, professional concierge for a digital agency.
@@ -66,7 +77,7 @@ app.get('/', (c) => c.json({
   status: 'running',
   features: {
     database: !!sql,
-    email: !!resend,
+    email: !!transporter,
     openai: !!openaiKey
   }
 }))
@@ -112,11 +123,11 @@ async function handleLead(leadData) {
       lead = leadData
     }
 
-    // 2. Send email notification (debounced logic ideally, but sending on update for now)
-    if (resend) {
-      const { data, error } = await resend.emails.send({
-        from: 'Cloud Miami AI <noreply@cloudmiami.com>',
-        to: ['manuel@cloudmiami.com'],
+    // 2. Send email notification
+    if (transporter) {
+      const info = await transporter.sendMail({
+        from: process.env.EMAIL_FROM || '"Cloud Miami AI" <noreply@cloudmiami.com>',
+        to: process.env.EMAIL_TO || 'manuel@cloudmiami.com',
         subject: `Lead Update: ${leadData.email}`,
         html: `
           <h2>Lead Captured/Updated</h2>
@@ -130,12 +141,9 @@ async function handleLead(leadData) {
           <a href="https://cx.cloudmiami.com/api/admin/leads">View in Dashboard</a>
         `
       })
-      
-      if (error) {
-        console.error('Resend email error:', error)
-      } else {
-        console.log('Email sent:', data)
-      }
+      console.log('Email sent:', info.messageId)
+    } else {
+      console.log('Mock Email Log:', `Lead Update: ${leadData.email}`)
     }
 
     return lead
@@ -202,12 +210,6 @@ app.post('/api/chat/stream', async (c) => {
     return c.json({ error: 'Message is required' }, 400)
   }
 
-  // 1. Check frontend-detected email as fallback/fast-path
-  if (leadEmail) {
-    // We don't save immediately, we let the extractor do a better job with context
-    // But we pass it to context if needed
-  }
-
   const openai = new OpenAI({
     apiKey: openaiKey || '',
   })
@@ -239,14 +241,12 @@ app.post('/api/chat/stream', async (c) => {
         }
         controller.close()
 
-        // 2. Trigger background extraction after response is complete
-        // We send the full history + new user message + new AI response
+        // Trigger background extraction
         const fullHistory = [
           ...messages,
           { role: 'assistant', content: fullResponse }
         ];
         
-        // Fire and forget (don't await)
         extractAndSaveLead(fullHistory);
       },
     })
@@ -260,6 +260,17 @@ app.post('/api/chat/stream', async (c) => {
       error: 'Failed to generate response',
       details: error.message || String(error)
     }, 500)
+  }
+})
+
+app.post('/api/leads', async (c) => {
+  const body = await c.req.json()
+  const result = await handleLead(body)
+  
+  if (result) {
+    return c.json({ success: true, lead: result })
+  } else {
+    return c.json({ success: false, error: 'Failed to save lead' }, 500)
   }
 })
 
