@@ -2,17 +2,13 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { serve } from '@hono/node-server'
 import OpenAI from 'openai'
-import { createClient } from '@supabase/supabase-js'
+import postgres from 'postgres'
 import { Resend } from 'resend'
 
 const app = new Hono()
 
 // Initialize clients
-const supabase = createClient(
-  process.env.SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_KEY || ''
-)
-
+const sql = postgres(process.env.DATABASE_URL || '')
 const resend = new Resend(process.env.RESEND_API_KEY)
 
 const SYSTEM_PROMPT = `You are the Cloud Miami AI assistant - a helpful, professional concierge for a digital agency.
@@ -56,28 +52,29 @@ async function handleLead(leadData) {
   if (!leadData.email) return null
 
   try {
-    // 1. Upsert lead to Supabase
-    const { data, error } = await supabase
-      .from('leads')
-      .upsert({
-        email: leadData.email,
-        name: leadData.name || 'Unknown',
-        phone: leadData.phone,
-        company: leadData.company,
-        interests: leadData.interests || [],
-        source: 'chatbot',
-        updated_at: new Date().toISOString()
-      }, { onConflict: 'email' })
-      .select()
-      .single()
+    // 1. Upsert lead to Postgres
+    const [lead] = await sql`
+      INSERT INTO leads (
+        email, name, phone, company, interests, source, updated_at
+      ) VALUES (
+        ${leadData.email},
+        ${leadData.name || 'Unknown'},
+        ${leadData.phone || null},
+        ${leadData.company || null},
+        ${leadData.interests || []},
+        'chatbot',
+        NOW()
+      )
+      ON CONFLICT (email) DO UPDATE SET
+        updated_at = NOW(),
+        name = EXCLUDED.name,
+        phone = COALESCE(EXCLUDED.phone, leads.phone),
+        company = COALESCE(EXCLUDED.company, leads.company),
+        interests = EXCLUDED.interests
+      RETURNING *
+    `
 
-    if (error) {
-      console.error('Supabase error:', error)
-      return null
-    }
-
-    // 2. Send email notification (only if new or significantly updated)
-    // For simplicity, we send on every capture for now, or you could add logic to check last_contacted
+    // 2. Send email notification
     await resend.emails.send({
       from: 'Cloud Miami AI <noreply@cloudmiami.com>',
       to: ['manuel@cloudmiami.com'], // Replace with your email
@@ -94,7 +91,7 @@ async function handleLead(leadData) {
       `
     })
 
-    return data
+    return lead
   } catch (err) {
     console.error('Lead handling error:', err)
     return null
@@ -109,7 +106,6 @@ app.post('/api/chat/stream', async (c) => {
     return c.json({ error: 'Message is required' }, 400)
   }
 
-  // Check if frontend detected lead info and process it
   if (leadEmail) {
     await handleLead({
       email: leadEmail,
@@ -169,20 +165,15 @@ app.post('/api/leads', async (c) => {
   }
 })
 
-// Simple Admin Dashboard Endpoint (JSON for now)
 app.get('/api/admin/leads', async (c) => {
-  // Basic auth check could be added here
-  const { data, error } = await supabase
-    .from('leads')
-    .select('*')
-    .order('created_at', { ascending: false })
-    .limit(50)
-
-  if (error) {
+  try {
+    const leads = await sql`
+      SELECT * FROM leads ORDER BY created_at DESC LIMIT 50
+    `
+    return c.json({ leads })
+  } catch (error) {
     return c.json({ error: error.message }, 500)
   }
-
-  return c.json({ leads: data })
 })
 
 const PORT = process.env.PORT || 3000
