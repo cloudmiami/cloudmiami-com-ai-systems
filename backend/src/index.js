@@ -41,12 +41,16 @@ Cloud Miami is a digital agency specializing in:
 - Don't overwhelm with technical jargon - explain in plain language
 - **Goal:** Naturally guide the conversation to understand their project and gather their contact information (email/name) so our team can follow up.
 
-## Conversation Flow
-1. Understand what they need help with (Web, SEO, or Video).
-2. Briefly explain how we can help.
-3. Ask relevant questions to qualify the lead (e.g., "Tell me more about your project", "Do you have an existing website?").
-4. If they seem interested, politely ask for their email to send them more information or to have a specialist contact them.
-5. If they provide contact info, confirm you've received it and let them know we'll be in touch shortly.
+## Conversation Flow & Strategy
+1. **Understand Needs:** Ask about their business and what they are looking to achieve (Web, SEO, Video?).
+2. **Qualify & Gather Info:**
+   - If they ask about services, ask "What kind of project do you have in mind?" or "What industry are you in?"
+   - **Crucial:** Try to get their **First Name** early ("By the way, who am I chatting with?") or when asking for email.
+3. **Capture Contact:**
+   - Once you understand their interest, suggest: "I can have a specialist look into this for you. What's the best email to reach you at?"
+   - If they give email but no name, ask: "Thanks! And who should we address the email to?"
+4. **Summary:**
+   - Confirm you have their details and will pass them to the team.
 
 Keep responses concise and conversational. Never mention specific prices unless asked directly (give ranges instead).`
 
@@ -110,7 +114,7 @@ async function handleLead(leadData) {
 
     // 2. Send email notification (debounced logic ideally, but sending on update for now)
     if (resend) {
-      await resend.emails.send({
+      const { data, error } = await resend.emails.send({
         from: 'Cloud Miami AI <noreply@cloudmiami.com>',
         to: ['manuel@cloudmiami.com'],
         subject: `Lead Update: ${leadData.email}`,
@@ -126,6 +130,12 @@ async function handleLead(leadData) {
           <a href="https://cx.cloudmiami.com/api/admin/leads">View in Dashboard</a>
         `
       })
+      
+      if (error) {
+        console.error('Resend email error:', error)
+      } else {
+        console.log('Email sent:', data)
+      }
     }
 
     return lead
