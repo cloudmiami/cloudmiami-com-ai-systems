@@ -75,51 +75,57 @@ async function handleLead(leadData) {
     // 1. Upsert lead to Postgres
     let lead = null
     if (sql) {
-      const result = await sql`
+      // Ensure arrays are formatted for Postgres
+      const interests = Array.isArray(leadData.interests) ? leadData.interests : [];
+      
+      const [result] = await sql`
         INSERT INTO leads (
-          email, name, phone, company, interests, source, updated_at
+          email, name, phone, company, interests, notes, source, updated_at
         ) VALUES (
           ${leadData.email},
           ${leadData.name || 'Unknown'},
           ${leadData.phone || null},
           ${leadData.company || null},
-          ${leadData.interests || []},
+          ${interests},
+          ${leadData.summary || null},
           'chatbot',
           NOW()
         )
         ON CONFLICT (email) DO UPDATE SET
           updated_at = NOW(),
-          name = EXCLUDED.name,
+          name = COALESCE(NULLIF(EXCLUDED.name, 'Unknown'), leads.name),
           phone = COALESCE(EXCLUDED.phone, leads.phone),
           company = COALESCE(EXCLUDED.company, leads.company),
-          interests = EXCLUDED.interests
+          interests = (
+            SELECT ARRAY(SELECT DISTINCT UNNEST(leads.interests || EXCLUDED.interests))
+          ),
+          notes = COALESCE(EXCLUDED.notes, leads.notes)
         RETURNING *
       `
-      lead = result[0]
+      lead = result
     } else {
       console.log('Mock DB Save:', leadData)
       lead = leadData
     }
 
-    // 2. Send email notification
+    // 2. Send email notification (debounced logic ideally, but sending on update for now)
     if (resend) {
       await resend.emails.send({
         from: 'Cloud Miami AI <noreply@cloudmiami.com>',
-        to: ['manuel@cloudmiami.com'], // Replace with your email
-        subject: `New Lead Detected: ${leadData.email}`,
+        to: ['manuel@cloudmiami.com'],
+        subject: `Lead Update: ${leadData.email}`,
         html: `
-          <h2>New Lead Captured by AI</h2>
+          <h2>Lead Captured/Updated</h2>
+          <p><strong>Name:</strong> ${leadData.name || 'N/A'}</p>
           <p><strong>Email:</strong> ${leadData.email}</p>
           <p><strong>Phone:</strong> ${leadData.phone || 'N/A'}</p>
           <p><strong>Company:</strong> ${leadData.company || 'N/A'}</p>
           <p><strong>Interests:</strong> ${leadData.interests?.join(', ') || 'N/A'}</p>
-          <p><strong>Time:</strong> ${new Date().toLocaleString()}</p>
+          <p><strong>Summary:</strong> ${leadData.summary || 'N/A'}</p>
           <br/>
-          <a href="https://cx.cloudmiami.com/admin/leads">View in Dashboard</a>
+          <a href="https://cx.cloudmiami.com/api/admin/leads">View in Dashboard</a>
         `
       })
-    } else {
-      console.log('Mock Email Send:', `New Lead Detected: ${leadData.email}`)
     }
 
     return lead
@@ -129,29 +135,71 @@ async function handleLead(leadData) {
   }
 }
 
+// Background Extraction Function
+async function extractAndSaveLead(messages) {
+  if (!openaiKey) return;
+
+  const openai = new OpenAI({ apiKey: openaiKey });
+  
+  try {
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        ...messages,
+        { 
+          role: 'system', 
+          content: 'Analyze the conversation above. Extract the user\'s contact information (email, name, phone) and any project details/interests. Return JSON only.' 
+        }
+      ],
+      tools: [{
+        type: "function",
+        function: {
+          name: "save_lead_info",
+          description: "Save extracted lead information",
+          parameters: {
+            type: "object",
+            properties: {
+              email: { type: "string" },
+              name: { type: "string" },
+              phone: { type: "string" },
+              company: { type: "string" },
+              interests: { type: "array", items: { type: "string" } },
+              summary: { type: "string", description: "Summary of user needs" }
+            },
+            required: ["email"]
+          }
+        }
+      }],
+      tool_choice: { type: "function", function: { name: "save_lead_info" } }
+    });
+
+    const toolCall = response.choices[0]?.message?.tool_calls?.[0];
+    if (toolCall) {
+      const args = JSON.parse(toolCall.function.arguments);
+      console.log('Extracted Lead Info:', args);
+      await handleLead(args);
+    }
+  } catch (e) {
+    console.error('Extraction error:', e);
+  }
+}
+
 app.post('/api/chat/stream', async (c) => {
   const body = await c.req.json()
-  const { message, leadEmail, leadPhone, leadCompany, leadInterests, history = [] } = body
+  const { message, leadEmail, history = [] } = body
 
   if (!message) {
     return c.json({ error: 'Message is required' }, 400)
   }
 
+  // 1. Check frontend-detected email as fallback/fast-path
   if (leadEmail) {
-    await handleLead({
-      email: leadEmail,
-      phone: leadPhone,
-      company: leadCompany,
-      interests: leadInterests
-    })
-  }
-
-  if (!openaiKey) {
-    return c.json({ error: 'OpenAI API key not configured' }, 500)
+    // We don't save immediately, we let the extractor do a better job with context
+    // But we pass it to context if needed
   }
 
   const openai = new OpenAI({
-    apiKey: openaiKey,
+    apiKey: openaiKey || '',
   })
 
   const messages = [
@@ -170,13 +218,26 @@ app.post('/api/chat/stream', async (c) => {
     const encoder = new TextEncoder()
     const readable = new ReadableStream({
       async start(controller) {
+        let fullResponse = "";
+        
         for await (const chunk of stream) {
           const content = chunk.choices[0]?.delta?.content || ''
           if (content) {
+            fullResponse += content;
             controller.enqueue(encoder.encode(content))
           }
         }
         controller.close()
+
+        // 2. Trigger background extraction after response is complete
+        // We send the full history + new user message + new AI response
+        const fullHistory = [
+          ...messages,
+          { role: 'assistant', content: fullResponse }
+        ];
+        
+        // Fire and forget (don't await)
+        extractAndSaveLead(fullHistory);
       },
     })
 
@@ -192,23 +253,12 @@ app.post('/api/chat/stream', async (c) => {
   }
 })
 
-app.post('/api/leads', async (c) => {
-  const body = await c.req.json()
-  const result = await handleLead(body)
-  
-  if (result) {
-    return c.json({ success: true, lead: result })
-  } else {
-    return c.json({ success: false, error: 'Failed to save lead' }, 500)
-  }
-})
-
 app.get('/api/admin/leads', async (c) => {
   if (!sql) return c.json({ error: 'Database not connected' }, 503)
     
   try {
     const leads = await sql`
-      SELECT * FROM leads ORDER BY created_at DESC LIMIT 50
+      SELECT * FROM leads ORDER BY updated_at DESC LIMIT 50
     `
     return c.json({ leads })
   } catch (error) {
