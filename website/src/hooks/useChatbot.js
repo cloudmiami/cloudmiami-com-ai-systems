@@ -203,6 +203,7 @@ export const useChatbot = () => {
 
   return {
     isOpen,
+    setIsOpen,
     messages,
     isTyping,
     leadData,
