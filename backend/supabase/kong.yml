@@ -1,0 +1,19 @@
+services:
+  postgres:
+    host: postgres
+    routes:
+      - path: /graphql
+        strip_path: true
+    preserve_host: true
+  rest:
+    host: postgres
+    routes:
+      - path: /rest
+        strip_path: true
+    preserve_host: true
+  grpc:
+    host: postgres
+    routes:
+      - path: /grpc
+        strip_path: true
+    preserve_host: true
