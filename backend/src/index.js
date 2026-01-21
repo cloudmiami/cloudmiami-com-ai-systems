@@ -7,9 +7,24 @@ import { Resend } from 'resend'
 
 const app = new Hono()
 
-// Initialize clients
-const sql = postgres(process.env.DATABASE_URL || '')
-const resend = new Resend(process.env.RESEND_API_KEY)
+// Initialize clients safely
+const dbUrl = process.env.DATABASE_URL
+const resendKey = process.env.RESEND_API_KEY
+const openaiKey = process.env.OPENAI_API_KEY
+
+let sql
+if (dbUrl) {
+  sql = postgres(dbUrl)
+} else {
+  console.warn('DATABASE_URL not set. Lead capture will not persist to DB.')
+}
+
+let resend
+if (resendKey) {
+  resend = new Resend(resendKey)
+} else {
+  console.warn('RESEND_API_KEY not set. Emails will not be sent.')
+}
 
 const SYSTEM_PROMPT = `You are the Cloud Miami AI assistant - a helpful, professional concierge for a digital agency.
 
@@ -45,6 +60,11 @@ app.get('/', (c) => c.json({
   service: 'Cloud Miami API',
   version: '1.0.0',
   status: 'running',
+  features: {
+    database: !!sql,
+    email: !!resend,
+    openai: !!openaiKey
+  }
 }))
 
 // Helper to handle lead storage and notification
@@ -53,43 +73,54 @@ async function handleLead(leadData) {
 
   try {
     // 1. Upsert lead to Postgres
-    const [lead] = await sql`
-      INSERT INTO leads (
-        email, name, phone, company, interests, source, updated_at
-      ) VALUES (
-        ${leadData.email},
-        ${leadData.name || 'Unknown'},
-        ${leadData.phone || null},
-        ${leadData.company || null},
-        ${leadData.interests || []},
-        'chatbot',
-        NOW()
-      )
-      ON CONFLICT (email) DO UPDATE SET
-        updated_at = NOW(),
-        name = EXCLUDED.name,
-        phone = COALESCE(EXCLUDED.phone, leads.phone),
-        company = COALESCE(EXCLUDED.company, leads.company),
-        interests = EXCLUDED.interests
-      RETURNING *
-    `
+    let lead = null
+    if (sql) {
+      const result = await sql`
+        INSERT INTO leads (
+          email, name, phone, company, interests, source, updated_at
+        ) VALUES (
+          ${leadData.email},
+          ${leadData.name || 'Unknown'},
+          ${leadData.phone || null},
+          ${leadData.company || null},
+          ${leadData.interests || []},
+          'chatbot',
+          NOW()
+        )
+        ON CONFLICT (email) DO UPDATE SET
+          updated_at = NOW(),
+          name = EXCLUDED.name,
+          phone = COALESCE(EXCLUDED.phone, leads.phone),
+          company = COALESCE(EXCLUDED.company, leads.company),
+          interests = EXCLUDED.interests
+        RETURNING *
+      `
+      lead = result[0]
+    } else {
+      console.log('Mock DB Save:', leadData)
+      lead = leadData
+    }
 
     // 2. Send email notification
-    await resend.emails.send({
-      from: 'Cloud Miami AI <noreply@cloudmiami.com>',
-      to: ['manuel@cloudmiami.com'], // Replace with your email
-      subject: `New Lead Detected: ${leadData.email}`,
-      html: `
-        <h2>New Lead Captured by AI</h2>
-        <p><strong>Email:</strong> ${leadData.email}</p>
-        <p><strong>Phone:</strong> ${leadData.phone || 'N/A'}</p>
-        <p><strong>Company:</strong> ${leadData.company || 'N/A'}</p>
-        <p><strong>Interests:</strong> ${leadData.interests?.join(', ') || 'N/A'}</p>
-        <p><strong>Time:</strong> ${new Date().toLocaleString()}</p>
-        <br/>
-        <a href="https://cx.cloudmiami.com/admin/leads">View in Dashboard</a>
-      `
-    })
+    if (resend) {
+      await resend.emails.send({
+        from: 'Cloud Miami AI <noreply@cloudmiami.com>',
+        to: ['manuel@cloudmiami.com'], // Replace with your email
+        subject: `New Lead Detected: ${leadData.email}`,
+        html: `
+          <h2>New Lead Captured by AI</h2>
+          <p><strong>Email:</strong> ${leadData.email}</p>
+          <p><strong>Phone:</strong> ${leadData.phone || 'N/A'}</p>
+          <p><strong>Company:</strong> ${leadData.company || 'N/A'}</p>
+          <p><strong>Interests:</strong> ${leadData.interests?.join(', ') || 'N/A'}</p>
+          <p><strong>Time:</strong> ${new Date().toLocaleString()}</p>
+          <br/>
+          <a href="https://cx.cloudmiami.com/admin/leads">View in Dashboard</a>
+        `
+      })
+    } else {
+      console.log('Mock Email Send:', `New Lead Detected: ${leadData.email}`)
+    }
 
     return lead
   } catch (err) {
@@ -115,8 +146,12 @@ app.post('/api/chat/stream', async (c) => {
     })
   }
 
+  if (!openaiKey) {
+    return c.json({ error: 'OpenAI API key not configured' }, 500)
+  }
+
   const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY || '',
+    apiKey: openaiKey,
   })
 
   const messages = [
@@ -166,6 +201,8 @@ app.post('/api/leads', async (c) => {
 })
 
 app.get('/api/admin/leads', async (c) => {
+  if (!sql) return c.json({ error: 'Database not connected' }, 503)
+    
   try {
     const leads = await sql`
       SELECT * FROM leads ORDER BY created_at DESC LIMIT 50
